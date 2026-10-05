@@ -72,6 +72,32 @@ const account = {
   },
 };
 
+/** Every request the pet's chat path sent, so the routing can be asserted. */
+const chatRequests = [];
+
+/**
+ * Stub model service.
+ *
+ * Shaped like the real one: an async iterable of token-level chunks ending in a
+ * terminal `finish`, which is what `ctx.llm.stream` yields.
+ */
+const llm = {
+  stream(request) {
+    chatRequests.push(request);
+    const chunks = [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text: '余额还够,' },
+      { type: 'text-delta', index: 0, text: '放心用。' },
+      { type: 'finish', kind: 'stop' },
+    ];
+    return {
+      async *[Symbol.asyncIterator]() {
+        for (const chunk of chunks) yield chunk;
+      },
+    };
+  },
+};
+
 /** Minimal stand-in for the Cordis context surface index.js actually uses. */
 const disposers = [];
 const listeners = new Map();
@@ -86,11 +112,16 @@ const context = {
     return () => listeners.delete(event);
   },
   get(name) {
-    return name === 'deepseekAccount' ? account : undefined;
+    if (name === 'deepseekAccount') return account;
+    if (name === 'llm') return llm;
+    return undefined;
   },
 };
 
-apply(context, { peakTickMs: 5000, balanceTickMs: 10000, idleChatter: false });
+// A small budget so the same suite can prove the ceiling actually holds. The
+// chat assertions below are ordered to spend it deliberately: one successful
+// call, one that fails inside the provider, then one that must be refused.
+apply(context, { peakTickMs: 5000, balanceTickMs: 10000, idleChatter: false, chatMaxPerHour: 2 });
 
 const stateDir = join(home, 'balance-pet');
 const bridgeFile = join(stateDir, 'bridge.json');
@@ -317,6 +348,86 @@ await check('host: unrelated chunks are ignored, not misclassified', async () =>
   handler({ frame: { type: 'chunk', chunk: { type: 'text-delta', index: 0, text: '报错 报错 报错' } } });
   const state = await snapshot();
   assert.notEqual(state.thinking.situation, 'error');
+});
+
+await check('host: the pet talks to its own model and the reply is spoken', async () => {
+  const response = await fetch(`${base}/chat`, {
+    method: 'POST',
+    headers: { ...authorized.headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '我余额还够吗' }),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.text, '余额还够,放心用。');
+
+  const state = await snapshot();
+  assert.equal(state.speech.text, '余额还够,放心用。');
+  assert.equal(state.speech.kind, 'chat');
+});
+
+await check('host: the chat call routes exactly as configured, thinking off', async () => {
+  assert.ok(chatRequests.length > 0, 'the model service was never called');
+  const request = chatRequests.at(-1);
+  assert.equal(request.provider, 'ds');
+  assert.equal(request.model, 'deepseek-v4-flash:free');
+  // The user asked for thinking to be off: these are one-line quips and a
+  // reasoning pass would cost more than the answer.
+  assert.equal(request.reasoningEffort, 'off');
+  assert.equal(request.messages.length, 1);
+  const text = request.messages[0].content[0].text;
+  assert.ok(text.includes('余额小人'), 'the persona is missing from the prompt');
+  assert.ok(text.includes('我余额还够吗'), 'the user text was not forwarded');
+});
+
+await check('host: an empty chat message is rejected before spending anything', async () => {
+  const response = await fetch(`${base}/chat`, {
+    method: 'POST',
+    headers: { ...authorized.headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '   ' }),
+  });
+  assert.equal(response.status, 400);
+});
+
+await check('host: a failing model service degrades instead of breaking the bridge', async () => {
+  // Swap in a stream that throws, and give the budget back so it is reached.
+  const original = llm.stream;
+  llm.stream = () => ({
+    async *[Symbol.asyncIterator]() {
+      yield { type: 'text-delta', index: 0, text: '半句' };
+      throw new Error('provider exploded');
+    },
+  });
+  const response = await fetch(`${base}/chat`, {
+    method: 'POST',
+    headers: { ...authorized.headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '在吗' }),
+  });
+  llm.stream = original;
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, false);
+  assert.equal(body.error, 'stream-failed');
+  // The bridge must still answer normally afterwards.
+  const state = await snapshot();
+  assert.equal(state.version, 1);
+});
+
+await check('host: the pet chat is rate-limited, because it spends the balance shown', async () => {
+  // Two calls have now been spent (one successful, one that failed inside the
+  // provider). A stream that fails still costs an attempt, so it counts.
+  const before = chatRequests.length;
+  const response = await fetch(`${base}/chat`, {
+    method: 'POST',
+    headers: { ...authorized.headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ text: '再来一句' }),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, false);
+  assert.equal(body.error, 'rate-limited');
+  // And it must not have reached the provider.
+  assert.equal(chatRequests.length, before, 'a refused call still hit the provider');
 });
 
 await check('host: the peak snapshot exposes a countdown target', async () => {

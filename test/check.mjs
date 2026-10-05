@@ -745,6 +745,15 @@ check('client: the bridge global it reads is the one the Host writes', () => {
   );
 });
 
+check('client: it wires the pet conversation to the bridge', () => {
+  // The panel input must reach `/chat`, which is the path that routes to the
+  // configured model with reasoning off.
+  assert.ok(CLIENT_SOURCE.includes("call('/chat'"), 'the chat input is not wired to the bridge');
+  assert.ok(CLIENT_SOURCE.includes('dbp-input'), 'the chat input has no styling');
+  // And it must never post to the conversation-injection path implicitly.
+  assert.ok(!CLIENT_SOURCE.includes("'/inject'"), 'client.js must not inject into the conversation');
+});
+
 check('client: no animation ignores the reduced-motion preference', () => {
   assert.ok(CLIENT_SOURCE.includes('@media (prefers-reduced-motion: reduce)'));
 });

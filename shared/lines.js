@@ -122,6 +122,20 @@ export const MEETING_LINES = Object.freeze([
 ]);
 
 /**
+ * The system framing for the pet's own model calls.
+ *
+ * Deliberately short. These are one-or-two-sentence replies to a user who is in
+ * the middle of real work, and every token is billed against the very balance
+ * the pet is displaying - a chatty persona prompt would be self-defeating.
+ */
+export const PET_SYSTEM_PROMPT = [
+  '你是一只住在 DeepSeek Harness 窗口角落里的 Q 版小宠物,名字叫「余额小人」。',
+  '你的职责:提醒用户当前是高峰(2 倍价)还是低谷计费,以及余额情况。',
+  '说话规则:中文;一到两句话,总共不超过 40 字;语气活泼但不油腻;可以玩梗,但不要编造余额或价格数字。',
+  '如果用户问余额或峰谷,而你上下文里没有确切数字,就直说你不确定,让他看右下角的读数。',
+].join('');
+
+/**
  * Pick a random element.
  *
  * @param list - non-empty list.

@@ -35,7 +35,13 @@ import { summarizeBalance } from './shared/budget.js';
 import { HOLIDAY_DATA_SOURCE, HOLIDAY_DATA_THROUGH } from './shared/holidays.js';
 import { PEAK_MULTIPLIER, describeReason, localWindowLabels, peakStateAt } from './shared/peak.js';
 import { classifySituation } from './shared/situation.js';
-import { PEAK_WARNING_LINES, pickIdleLine, pickSituationLine, stageName } from './shared/lines.js';
+import {
+  PEAK_WARNING_LINES,
+  PET_SYSTEM_PROMPT,
+  pickIdleLine,
+  pickSituationLine,
+  stageName,
+} from './shared/lines.js';
 
 /** Stable Cordis plugin name; must match the patch row's `id`. */
 export const name = 'balance-pet';
@@ -317,9 +323,17 @@ function startBridge(options) {
             return;
           }
         }
-        const result = options.onCommand(url.pathname, payload);
-        response.writeHead(result.status, { ...cors, 'content-type': 'application/json' });
-        response.end(JSON.stringify(result.body));
+        // The handler may be asynchronous (the pet's chat path streams from a
+        // model), so the answer is awaited rather than assumed synchronous.
+        Promise.resolve(options.onCommand(url.pathname, payload))
+          .then((result) => {
+            response.writeHead(result.status, { ...cors, 'content-type': 'application/json' });
+            response.end(JSON.stringify(result.body));
+          })
+          .catch((error) => {
+            response.writeHead(500, { ...cors, 'content-type': 'application/json' });
+            response.end(JSON.stringify({ ok: false, error: String(error?.message ?? error) }));
+          });
       });
       return;
     }
@@ -483,12 +497,83 @@ export function apply(ctx, rawConfig) {
     }
   };
 
-  /** Have the pet say something. @param line - the utterance. @param kind - why. */
+  /**
+   * Have the pet say something. @param line - the utterance. @param kind - why.
+   */
   const say = (line, kind) => {
     if (line === null || line === undefined || line === '') return;
     speech = { text: String(line), kind: kind ?? 'idle', at: new Date().toISOString() };
     publish('speech');
   };
+
+  /**
+   * Model calls made in the current hour.
+   *
+   * The pet's conversation is billed against the balance it displays, so a bug
+   * that loops here would drain the account it exists to protect. The window is
+   * a hard ceiling, not a warning.
+   */
+  let chatWindow = { startedAt: 0, count: 0 };
+
+  /** @returns whether another model call is allowed this hour. */
+  function chatBudgetAvailable() {
+    const now = Date.now();
+    if (now - chatWindow.startedAt > 3_600_000) chatWindow = { startedAt: now, count: 0 };
+    return chatWindow.count < config.chatMaxPerHour;
+  }
+
+  /**
+   * Ask the pet's own model for a reply.
+   *
+   * Streaming, with reasoning left off (the configured effort): these are
+   * one-line quips, and a reasoning pass would cost more than the answer.
+   *
+   * @param userText - what the user said.
+   * @returns the reply, or an explicit failure the UI can show.
+   */
+  async function askPet(userText) {
+    const llm = typeof ctx.get === 'function' ? ctx.get('llm') : undefined;
+    if (llm === undefined || typeof llm.stream !== 'function') {
+      return { ok: false, error: 'no-llm', message: '当前环境没有可用的模型服务' };
+    }
+    if (!chatBudgetAvailable()) {
+      return {
+        ok: false,
+        error: 'rate-limited',
+        message: `小人这一小时已经说了 ${String(config.chatMaxPerHour)} 次,歇会儿再聊`,
+      };
+    }
+    chatWindow.count += 1;
+
+    // A single user message carrying the persona: durable system messages need
+    // an id and source that this plugin has no business minting, and a
+    // request-only user input is the documented shape for auxiliary calls.
+    const prompt = `${PET_SYSTEM_PROMPT}\n\n用户说:${userText}`;
+    let answer = '';
+    try {
+      const stream = llm.stream({
+        provider: config.chatProvider,
+        model: config.chatModel,
+        reasoningEffort: config.chatReasoningEffort,
+        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+      });
+      for await (const chunk of stream) {
+        if (chunk === null || chunk === undefined) continue;
+        if (chunk.type === 'text-delta' && typeof chunk.text === 'string') answer += chunk.text;
+        if (chunk.type === 'finish') break;
+      }
+    } catch (error) {
+      const message = String(error?.message ?? error);
+      log(`pet chat failed: ${message}`);
+      return { ok: false, error: 'stream-failed', message };
+    }
+
+    const trimmed = answer.trim();
+    if (trimmed === '') {
+      return { ok: false, error: 'empty-reply', message: '模型没有给出内容' };
+    }
+    return { ok: true, text: trimmed.slice(0, 200) };
+  }
 
   /**
    * Read the account balance once.
@@ -539,6 +624,22 @@ export function apply(ctx, rawConfig) {
                   : pickIdleLine();
               say(line, 'manual');
               return { status: 200, body: { ok: true } };
+            }
+            if (pathname === '/chat') {
+              // The pet's own conversation. Routed through the configured model
+              // with reasoning off, rate-limited, and never injected into the
+              // user's real Session.
+              const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+              if (text === '') {
+                return { status: 400, body: { ok: false, error: 'empty-text' } };
+              }
+              return askPet(text.slice(0, 1000)).then((result) => {
+                if (result.ok) {
+                  say(result.text, 'chat');
+                  return { status: 200, body: { ok: true, text: result.text } };
+                }
+                return { status: 200, body: result };
+              });
             }
             if (pathname === '/state') {
               return { status: 200, body: rebuildSnapshot() };

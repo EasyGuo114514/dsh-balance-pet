@@ -423,11 +423,12 @@ window.__ModuleLoader__.load({
      * safety net for the countdown and for the moment right after the bridge
      * restarts, when the page global still points at the old port.
      *
-     * @returns the latest snapshot and a connection status string.
+     * @returns the latest snapshot, a connection status, and a POST helper.
      */
     function useBridge() {
       const [snapshot, setSnapshot] = React.useState(null);
       const [status, setStatus] = React.useState('connecting');
+      const target = React.useRef(null);
 
       React.useEffect(() => {
         const info = globalThis.__DSH_BALANCE_PET__;
@@ -440,6 +441,7 @@ window.__ModuleLoader__.load({
         }
         const base = `http://127.0.0.1:${String(info.port)}`;
         const headers = { 'x-balance-pet-token': info.token };
+        target.current = { base, headers };
         let source = null;
         let closed = false;
 
@@ -487,7 +489,28 @@ window.__ModuleLoader__.load({
         };
       }, []);
 
-      return { snapshot, status };
+      /**
+       * POST a bridge command.
+       * @param path - bridge path such as `/chat`.
+       * @param body - JSON body.
+       * @returns the parsed reply, or `null` when the bridge is unreachable.
+       */
+      const call = React.useCallback(async (path, body) => {
+        const current = target.current;
+        if (current === null) return null;
+        try {
+          const response = await fetch(`${current.base}${path}`, {
+            method: 'POST',
+            headers: { ...current.headers, 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          return await response.json();
+        } catch {
+          return null;
+        }
+      }, []);
+
+      return { snapshot, status, call };
     }
 
     /* ------------------------------------------------------------------- css */
@@ -552,6 +575,12 @@ window.__ModuleLoader__.load({
       '.dbp-select{height:28px;border-radius:var(--dsw-radius-md);font-family:inherit;font-size:12px;',
       'background:var(--dsw-specific-selector);color:var(--dsw-alias-label-primary);',
       'border:.5px solid var(--dsw-alias-border-l3);padding:0 6px;max-width:100%;}',
+      '.dbp-chatRow{display:flex;gap:6px;align-items:center;}',
+      '.dbp-input{flex:1;min-width:0;height:30px;border-radius:var(--dsw-radius-md);font-family:inherit;',
+      'font-size:12px;padding:0 8px;background:var(--dsw-specific-input-major);',
+      'color:var(--dsw-alias-label-primary);border:.5px solid var(--dsw-alias-border-l3);}',
+      '.dbp-input:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);',
+      'outline-offset:1px;}',
       /* idle motion */
       '@media (prefers-reduced-motion: no-preference){',
       '.dbp-anim-breathe{animation:dbp-breathe 3.4s ease-in-out infinite;}',
@@ -653,7 +682,7 @@ window.__ModuleLoader__.load({
      * @returns the overlay element tree.
      */
     function PetOverlay() {
-      const { snapshot, status } = useBridge();
+      const { snapshot, status, call } = useBridge();
       const [open, setOpen] = React.useState(false);
       const [skin, setSkin] = React.useState(() => {
         const stored = readStored(STORAGE.skin, 'deepseek');
@@ -662,6 +691,9 @@ window.__ModuleLoader__.load({
       const [forcedFace, setForcedFace] = React.useState(null);
       const [blinking, setBlinking] = React.useState(false);
       const [dismissedSpeechAt, setDismissedSpeechAt] = React.useState(null);
+      const [draft, setDraft] = React.useState('');
+      const [chatBusy, setChatBusy] = React.useState(false);
+      const [chatNote, setChatNote] = React.useState('');
 
       // The face follows the agent's reasoning situation, which is the whole
       // point of the thinking integration; a manual preview overrides it.
@@ -689,6 +721,24 @@ window.__ModuleLoader__.load({
       const changeSkin = (next) => {
         setSkin(next);
         writeStored(STORAGE.skin, next);
+      };
+
+      /**
+       * Send one message to the pet.
+       *
+       * The reply arrives through the normal speech channel, so the pet's face
+       * and bubble behave exactly as they do for a line it decided to say.
+       */
+      const send = async () => {
+        const text = draft.trim();
+        if (text === '' || chatBusy) return;
+        setChatBusy(true);
+        setChatNote('');
+        setDraft('');
+        const result = await call('/chat', { text });
+        if (result === null) setChatNote('桥接不可用,没能送出去');
+        else if (result.ok !== true) setChatNote(result.message ?? '小人这次没说出话来');
+        setChatBusy(false);
       };
 
       const display = describe(snapshot);
@@ -823,6 +873,41 @@ window.__ModuleLoader__.load({
                   ),
                 ),
                 h('div', { key: 'd3', className: 'dbp-divider' }),
+                h('h4', { key: 'h4' }, '跟它说话'),
+                h(
+                  'div',
+                  { key: 'chatRow', className: 'dbp-chatRow' },
+                  h('input', {
+                    key: 'input',
+                    className: 'dbp-input',
+                    type: 'text',
+                    value: draft,
+                    placeholder: '问它余额、峰谷,或者随便聊',
+                    onChange: (event) => setDraft(event.target.value),
+                    onKeyDown: (event) => {
+                      if (event.key === 'Enter') void send();
+                    },
+                  }),
+                  h(
+                    'button',
+                    {
+                      key: 'send',
+                      type: 'button',
+                      className: 'dbp-btn',
+                      disabled: chatBusy || draft.trim() === '',
+                      onClick: () => void send(),
+                    },
+                    chatBusy ? '…' : '说',
+                  ),
+                ),
+                chatNote !== '' ? h('div', { key: 'chatNote', className: 'dbp-dim' }, chatNote) : null,
+                h(
+                  'div',
+                  { key: 'chatHint', className: 'dbp-dim' },
+                  `它自己的对话走 ${String(snapshot?.config?.chatModel ?? '—')}(思考关闭),有每小时次数上限;` +
+                    '所有内容不会进入你的对话。',
+                ),
+                h('div', { key: 'd4', className: 'dbp-divider' }),
                 h(
                   'div',
                   { key: 'status', className: 'dbp-dim' },
