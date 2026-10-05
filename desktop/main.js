@@ -21,11 +21,17 @@
  * Run with: npm start  (from this directory)
  */
 
-import { BrowserWindow, app, ipcMain, screen } from 'electron';
+// `electron` is a CommonJS module, so named ESM imports of its exports are not
+// available; the default export carries them. Importing named bindings here
+// fails at load with "does not provide an export named 'BrowserWindow'", which
+// means the window never appears and nothing else looks wrong.
+import electron from 'electron';
 import { readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const { BrowserWindow, app, ipcMain, screen } = electron;
 
 /** Window size, in device-independent pixels. */
 const PET_WIDTH = 200;
