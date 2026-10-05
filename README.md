@@ -1,6 +1,10 @@
 # dsh-balance-pet
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 给 **DeepSeek Harness** 用的余额与峰谷时段小人。
+
+仓库地址:<https://github.com/EasyGuo114514/dsh-balance-pet>
 
 它解决两件具体的事:
 
@@ -46,6 +50,14 @@
 
 本插件是标准的 DSH bundle(`dsh.bundle.patch` + `dsh.client`),安装方式是把它加进 profile。
 本机已装好的形态是 `link:` 依赖,源码即插件目录,不需要构建。
+
+```powershell
+git clone https://github.com/EasyGuo114514/dsh-balance-pet.git
+cd dsh-balance-pet
+.\install.ps1          # 改 profile + 建软链,带备份与失败回滚
+```
+
+`install.ps1` 会做上面「手工步骤」里的全部事情。手工步骤如下(想自己控制时用):
 
 ```powershell
 # 1) 加进 desktop profile 的依赖与 bundle 列表
