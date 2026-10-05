@@ -1,0 +1,21 @@
+# build / dependency noise
+node_modules/
+desktop/node_modules/
+*.log
+
+# local runtime state
+bridge.json
+bridge.log
+*.png
+
+# Reference material extracted from the installed Harness packages while
+# developing this plugin. It is DeepSeek's own documentation, not this project's,
+# so it stays on the developer's disk and is not redistributed.
+research/
+
+# editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store

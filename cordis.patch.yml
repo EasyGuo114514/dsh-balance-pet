@@ -1,0 +1,3 @@
+- insert:
+    - id: balance-pet
+      name: '@local/dsh-balance-pet'

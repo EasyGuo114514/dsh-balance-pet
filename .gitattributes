@@ -1,0 +1,8 @@
+# Normalize line endings so the repository is checked out consistently on
+# Windows and elsewhere. The source is written with LF; a Windows checkout may
+# still use CRLF locally.
+* text=auto eol=lf
+
+# Keep these binary.
+*.png binary
+*.ico binary

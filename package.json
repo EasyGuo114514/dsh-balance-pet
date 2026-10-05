@@ -1,0 +1,39 @@
+{
+  "name": "@local/dsh-balance-pet",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Balance + peak/off-peak billing pet for DeepSeek Harness: a live remaining-balance readout, an honest peak-window warning, and a Q-version companion that reacts to what the agent is thinking.",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "shared",
+    "characters",
+    "locale/*.json"
+  ],
+  "scripts": {
+    "test": "node test/check.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  }
+}

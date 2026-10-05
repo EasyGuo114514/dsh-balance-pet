@@ -1,0 +1,14 @@
+{
+  "name": "dsh-balance-pet-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Desktop companion window for dsh-balance-pet: a transparent, always-on-top pet that walks across your whole screen, not just inside the Harness window.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.5.1"
+  }
+}

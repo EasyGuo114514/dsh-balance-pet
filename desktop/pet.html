@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Balance Pet</title>
+    <link rel="stylesheet" href="/pet/pet.css" />
+  </head>
+  <body>
+    <!--
+      The desktop companion. Everything is transparent except the pet itself, so
+      what the user sees is a character standing on their desktop rather than a
+      window containing a character.
+    -->
+    <div id="stage" class="stage">
+      <div id="bubble" class="bubble" hidden></div>
+      <div class="row">
+        <div id="pet" class="pet" role="img" aria-label="balance pet"></div>
+        <div id="readout" class="readout">
+          <div id="amount" class="amount">…</div>
+          <div id="stage-name" class="stageName"></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/pet/pet.js"></script>
+  </body>
+</html>
